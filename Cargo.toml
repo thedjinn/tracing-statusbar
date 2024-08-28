@@ -1,0 +1,9 @@
+[package]
+name = "tracing-statusbar"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+crossterm = "0.28.1"
+tracing = "0.1.40"
+tracing-subscriber = "0.3.18"
