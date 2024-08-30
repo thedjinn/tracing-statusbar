@@ -35,10 +35,7 @@ impl Drop for HiddenCursorGuard {
 
 /// A status line printing callback. This should print the status line to the provided writer and
 /// return the number of newlines written.
-fn write_status_line<W>(mut output: &W) -> io::Result<u16>
-where
-    for<'a> &'a W: Write,
-{
+fn write_status_line<W: Write>(output: &mut W) -> io::Result<u16> {
     // Write the status line. Note that for a single line no newlines should be emitted, so that
     // the status line stays at the bottom of the screen. Also note the use of `queue!` here, which
     // does not flush the output writer. This is done implicitly by the crate.

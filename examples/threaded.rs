@@ -16,10 +16,7 @@ use tracing_statusbar::Builder;
 
 /// A status line printing callback. This should print the status line to the provided writer and
 /// return the number of newlines written.
-fn write_status_line<W>(mut output: &W) -> io::Result<u16>
-where
-    for<'a> &'a W: Write,
-{
+fn write_status_line<W: Write>(output: &mut W) -> io::Result<u16> {
     // Show a temporary status indicating that the callback was fired. Normally the status line
     // should not be written twice in this callback, but this is just done to illustrate how the
     // threaded log writer buffers any log messages.

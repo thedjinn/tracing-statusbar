@@ -4,7 +4,7 @@ mod threaded;
 mod unthreaded;
 mod utils;
 
-pub use builder::Builder;
+pub use builder::{Builder, MakeCallback};
 pub use threaded::ThreadedHandler;
 pub use unthreaded::UnthreadedHandler;
 

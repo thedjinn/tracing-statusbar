@@ -6,7 +6,7 @@ use crossterm::style::ResetColor;
 use crossterm::terminal::{Clear, ClearType};
 use tracing_subscriber::fmt::MakeWriter;
 
-use crate::{LogReceiver, LogSender, RawModeGuard};
+use crate::{LogReceiver, LogSender, MakeCallback, RawModeGuard};
 use crate::log_bridge::{self, TryRecvError};
 
 fn handle_logs<T, W>(
@@ -16,15 +16,15 @@ fn handle_logs<T, W>(
     mut output: W,
 )
 where
-    T: FnMut(&W) -> io::Result<u16>,
-    for<'b> &'b mut W: Write,
+    T: FnMut(&mut W) -> io::Result<u16>,
+    W: Write,
 {
     let mut lines = 0;
 
     while let Some(entry) = receiver.recv() {
         // Move to the beginning of the line and reset the color to default
         crossterm::queue!(
-            &mut output,
+            output,
             MoveToColumn(0),
             ResetColor,
         ).expect("Could not write to output");
@@ -32,7 +32,7 @@ where
         // Erase any lines that were written in the previous callback
         for _ in 0..lines {
             crossterm::queue!(
-                &mut output,
+                output,
                 Clear(ClearType::CurrentLine),
                 MoveUp(1),
             ).expect("Could not write to output");
@@ -40,7 +40,7 @@ where
 
         // Erase the current line.
         crossterm::queue!(
-            &mut output,
+            output,
             Clear(ClearType::CurrentLine),
         ).expect("Could not write to output");
 
@@ -52,13 +52,13 @@ where
         };
 
         // Write the log entry
-        let _ = (&mut output).write(&entry).expect("Could not write to output");
+        let _ = output.write(&entry).expect("Could not write to output");
 
         // Grab any additional queued entries to reduce unnecessary status line writing
         loop {
             match receiver.try_recv() {
                 Ok(entry) => {
-                    let _ = (&mut output).write(&entry).expect("Could not write to output");
+                    let _ = output.write(&entry).expect("Could not write to output");
                 }
 
                 Err(TryRecvError::Empty) => break,
@@ -71,13 +71,13 @@ where
 
         // Write the status line and track the number of lines written
         crossterm::execute!(
-            &mut output,
+            output,
             MoveToColumn(0),
         ).expect("Could not write to output");
 
         lines = callback(&mut output).expect("Could not write to output");
 
-        (&mut output).flush().expect("Could not flush output");
+        output.flush().expect("Could not flush output");
     }
 }
 
@@ -93,9 +93,8 @@ impl ThreadedHandler {
         assume_raw_mode: bool,
     ) -> Self
     where
-        T: FnMut(&W) -> io::Result<u16> + Send + 'static,
-        W: Send + 'static,
-        for<'b> &'b mut W: Write,
+        T: MakeCallback<W> + Send + 'static,
+        W: Write + Send + 'static,
     {
         let (log_sender, log_receiver) = log_bridge::init();
 
@@ -103,7 +102,7 @@ impl ThreadedHandler {
             crate::threaded::handle_logs(
                 log_receiver,
                 assume_raw_mode,
-                callback,
+                callback.make_callback(),
                 output,
             )
         });
@@ -135,4 +134,3 @@ impl<'a> MakeWriter<'a> for ThreadedHandler {
         self.log_sender.clone()
     }
 }
-

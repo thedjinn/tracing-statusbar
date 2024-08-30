@@ -10,8 +10,8 @@ use crate::RawModeGuard;
 
 struct WriteState<T, W>
 where
-    T: FnMut(&W) -> io::Result<u16>,
-    for<'a> &'a mut W: Write,
+    T: FnMut(&mut W) -> io::Result<u16>,
+    W: Write,
 {
     callback: T,
     output: W,
@@ -21,8 +21,8 @@ where
 
 impl<T, W> WriteState<T, W>
 where
-    T: FnMut(&W) -> io::Result<u16>,
-    for<'a> &'a mut W: Write,
+    T: FnMut(&mut W) -> io::Result<u16>,
+    W: Write,
 {
     fn new(callback: T, output: W, assume_raw_mode: bool) -> Self {
         Self {
@@ -40,16 +40,16 @@ where
 
 pub struct LogWriter<T, W>
 where
-    T: FnMut(&W) -> io::Result<u16>,
-    for<'a> &'a mut W: Write,
+    T: FnMut(&mut W) -> io::Result<u16>,
+    W: Write,
 {
     state: Arc<Mutex<WriteState<T, W>>>,
 }
 
 impl<T, W> Clone for LogWriter<T, W>
 where
-    T: FnMut(&W) -> io::Result<u16>,
-    for<'a> &'a mut W: Write,
+    T: FnMut(&mut W) -> io::Result<u16>,
+    W: Write,
 {
     fn clone(&self) -> Self {
         Self {
@@ -60,8 +60,8 @@ where
 
 impl<T, W> LogWriter<T, W>
 where
-    T: FnMut(&W) -> io::Result<u16>,
-    for<'a> &'a mut W: Write,
+    T: FnMut(&mut W) -> io::Result<u16>,
+    W: Write,
 {
     fn new(callback: T, output: W, assume_raw_mode: bool) -> Self {
         Self {
@@ -76,15 +76,15 @@ where
 
 impl<T, W> Write for LogWriter<T, W>
 where
-    T: FnMut(&W) -> io::Result<u16>,
-    for<'a> &'a mut W: Write,
+    T: FnMut(&mut W) -> io::Result<u16>,
+    W: Write,
 {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
         let mut state = self.state.lock().expect("Log writer state mutex was poisoned");
 
         // Move to the beginning of the line and reset the color to default
         crossterm::queue!(
-            &mut state.output,
+            state.output,
             MoveToColumn(0),
             ResetColor,
         )?;
@@ -92,7 +92,7 @@ where
         // Erase any lines that were written in the previous callback
         for _ in 0..state.lines {
             crossterm::queue!(
-                &mut state.output,
+                state.output,
                 Clear(ClearType::CurrentLine),
                 MoveUp(1),
             )?;
@@ -100,7 +100,7 @@ where
 
         // Erase the current line.
         crossterm::queue!(
-            &mut state.output,
+            state.output,
             Clear(ClearType::CurrentLine),
         )?;
 
@@ -112,21 +112,20 @@ where
         };
 
         // Write the log entry
-        let bytes_written = (&mut state.output)
-            .write(buf)?;
+        let bytes_written = state.output.write(buf)?;
 
         // Re-enable raw mode if necessary
         drop(raw_mode_guard);
 
         // Write the status line and track the number of lines written
         crossterm::execute!(
-            &mut state.output,
+            state.output,
             MoveToColumn(0),
         )?;
 
         state.lines = state.invoke_callback()?;
 
-        (&mut state.output).flush()?;
+        state.output.flush()?;
 
         Ok(bytes_written)
     }
@@ -134,22 +133,22 @@ where
     fn flush(&mut self) -> io::Result<()> {
         let mut state = self.state.lock().expect("Log writer state mutex was poisoned");
 
-        (&mut state.output).flush()
+        state.output.flush()
     }
 }
 
 pub struct UnthreadedHandler<T, W>
 where
-    T: FnMut(&W) -> io::Result<u16>,
-    for<'a> &'a mut W: Write,
+    T: FnMut(&mut W) -> io::Result<u16>,
+    W: Write,
 {
     writer: LogWriter<T, W>,
 }
 
 impl<T, W> UnthreadedHandler<T, W>
 where
-    T: FnMut(&W) -> io::Result<u16>,
-    for<'a> &'a mut W: Write,
+    T: FnMut(&mut W) -> io::Result<u16>,
+    W: Write,
 {
     pub(crate) fn new(callback: T, output: W, assume_raw_mode: bool) -> Self {
         Self {
@@ -160,8 +159,8 @@ where
 
 impl<'a, T, W> MakeWriter<'a> for UnthreadedHandler<T, W>
 where
-    T: FnMut(&W) -> io::Result<u16>,
-    for<'b> &'b mut W: Write,
+    T: FnMut(&mut W) -> io::Result<u16>,
+    W: Write,
 {
     type Writer = LogWriter<T, W>;
 

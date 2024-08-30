@@ -10,38 +10,50 @@ use std::time::Duration;
 use crossterm::style::Print;
 use tracing::info;
 
-use tracing_statusbar::Builder;
+use tracing_statusbar::{Builder, MakeCallback};
 
-/// A factory function that creates a status line callback that counts and prints the number of
-/// times it was invoked.
-fn make_write_status_line<W>() -> impl FnMut(&W) -> io::Result<u16>
-where
-    for<'a> &'a W: Write,
-{
-    // Create a counter variable. Ownership is moved into the closure.
-    let mut count = 0;
+/// A struct that represents the status line state. It contains a counter that indicates the number
+/// of times the status line callback was invoked.
+#[derive(Default)]
+struct StatusLine {
+    count: u32,
+}
 
-    move |mut output: &W| {
-        // Increment the counter
-        count += 1;
+/// An impl of MakeCallback is added to convert the StatusLine struct into a callback that can be
+/// used to render the status line.
+///
+/// The callback factory takes ownership of self and wraps it into the boxed closure. This allows
+/// access to the contents of the status line struct.
+///
+/// For shared access to the status line the status line struct or its internals can be wrapped
+/// with internal mutability containers.
+impl<W: Write> MakeCallback<W> for StatusLine {
+    type Callback = Box<dyn FnMut(&mut W) -> io::Result<u16> + Send>;
 
-        // Write the status line. Note that for a single line no newlines should be emitted, so
-        // that the status line stays at the bottom of the screen. Also note the use of `queue!`
-        // here, which does not flush the output writer. This is done implicitly by the crate.
-        crossterm::queue!(
-            output,
-            Print(format!("--- The statusbar was redrawn {count} times ---")),
-        )?;
+    fn make_callback(mut self) -> Self::Callback {
+        Box::new(move |output| {
+            // Increment the counter
+            self.count += 1;
 
-        // Return the number of newlines written, which is zero for a single status line.
-        Ok(0)
+            // Write the status line. Note that for a single line no newlines should be emitted, so
+            // that the status line stays at the bottom of the screen. Also note the use of
+            // `queue!` here, which does not flush the output writer. This is done implicitly by
+            // the crate.
+            crossterm::queue!(
+                output,
+                Print(format!("--- The statusbar was redrawn {} times ---", self.count)),
+            )?;
+
+            // Return the number of newlines written, which is zero for a single status line.
+            Ok(0)
+        })
     }
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Create the status line log writer
     let writer = Builder::with_stdout()
-        .with_callback(make_write_status_line())
+        .with_callback(StatusLine::default())
         .finish();
 
     // Create a subscriber and attach the writer to it

@@ -3,6 +3,24 @@ use std::marker::PhantomData;
 
 use crate::{ThreadedHandler, UnthreadedHandler};
 
+pub trait MakeCallback<W: Write> {
+    type Callback: (FnMut(&mut W) -> io::Result<u16>);
+
+    fn make_callback(self) -> Self::Callback;
+}
+
+impl<T, W> MakeCallback<W> for T
+where
+    T: FnMut(&mut W) -> io::Result<u16>,
+    W: Write,
+{
+    type Callback = Self;
+
+    fn make_callback(self) -> Self::Callback {
+        self
+    }
+}
+
 /// Internal namespace to hide trait seal.
 mod private {
     /// A trait seal.
@@ -23,8 +41,8 @@ impl private::Sealed for Uninitialized {}
 /// thread.
 pub struct Threaded<T, W>
 where
-    T: FnMut(&W) -> io::Result<u16> + Send + 'static,
-    for<'b> &'b mut W: Write,
+    T: MakeCallback<W>,
+    W: Write,
 {
     callback: T,
     _marker: PhantomData<W>,
@@ -32,8 +50,8 @@ where
 
 impl<T, W> Threaded<T, W>
 where
-    T: FnMut(&W) -> io::Result<u16> + Send + 'static,
-    for<'b> &'b mut W: Write,
+    T: MakeCallback<W>,
+    W: Write,
 {
     /// Initialize a new threaded state using the provided callback.
     fn new(callback: T) -> Self {
@@ -46,22 +64,22 @@ where
 
 impl<T, W> State for Threaded<T, W>
 where
-    T: FnMut(&W) -> io::Result<u16> + Send + 'static,
-    for<'b> &'b mut W: Write,
+    T: MakeCallback<W>,
+    W: Write,
 {}
 
 impl<T, W> private::Sealed for Threaded<T, W>
 where
-    T: FnMut(&W) -> io::Result<u16> + Send + 'static,
-    for<'b> &'b mut W: Write,
+    T: MakeCallback<W>,
+    W: Write,
 {}
 
 /// A state for `Builder` that will initialize the log handler with log writing on the foreground
 /// thread.
 pub struct Unthreaded<T, W>
 where
-    T: FnMut(&W) -> io::Result<u16>,
-    for<'b> &'b mut W: Write,
+    T: MakeCallback<W>,
+    W: Write,
 {
     callback: T,
     _marker: PhantomData<W>,
@@ -69,8 +87,8 @@ where
 
 impl<T, W> Unthreaded<T, W>
 where
-    T: FnMut(&W) -> io::Result<u16>,
-    for<'b> &'b mut W: Write,
+    T: MakeCallback<W>,
+    W: Write,
 {
     /// Initialize a new unthreaded state using the provided callback.
     fn new(callback: T) -> Self {
@@ -83,21 +101,21 @@ where
 
 impl<T, W> State for Unthreaded<T, W>
 where
-    T: FnMut(&W) -> io::Result<u16>,
-    for<'b> &'b mut W: Write,
+    T: MakeCallback<W>,
+    W: Write,
 {}
 
 impl<T, W> private::Sealed for Unthreaded<T, W>
 where
-    T: FnMut(&W) -> io::Result<u16>,
-    for<'b> &'b mut W: Write,
+    T: MakeCallback<W>,
+    W: Write,
 {}
 
 /// A builder struct for status line log writers.
 pub struct Builder<T, W>
 where
     T: State,
-    for<'b> &'b mut W: Write,
+    W: Write,
 {
     callback: T,
     output: W,
@@ -132,7 +150,7 @@ impl Default for Builder<Uninitialized, Stdout> {
 impl<T, W> Builder<T, W>
 where
     T: State,
-    for<'b> &'b mut W: Write,
+    W: Write,
 {
     /// Provide a status line callback to the builder.
     ///
@@ -153,7 +171,7 @@ where
     /// The callback does not have to flush the output writer, this is done automatically.
     pub fn with_callback<C>(self, callback: C) -> Builder<Unthreaded<C, W>, W>
     where
-        C: FnMut(&W) -> io::Result<u16>,
+        C: MakeCallback<W>,
     {
         Builder {
             callback: Unthreaded::new(callback),
@@ -185,9 +203,8 @@ where
 
 impl<T, W> Builder<Unthreaded<T, W>, W>
 where
-    T: FnMut(&W) -> io::Result<u16> + Send + 'static,
-    W: Send + 'static,
-    for<'b> &'b mut W: Write,
+    T: MakeCallback<W> + Send + 'static,
+    W: Write + Send + 'static,
 {
     /// Tell the builder to create a log handler that writes its log messagse using a background
     /// thread.
@@ -214,9 +231,8 @@ where
 
 impl<T, W> Builder<Threaded<T, W>, W>
 where
-    T: FnMut(&W) -> io::Result<u16> + Send + 'static,
-    W: Send + 'static,
-    for<'b> &'b mut W: Write,
+    T: MakeCallback<W> + Send + 'static,
+    W: Write + Send + 'static,
 {
     /// Finish construction of the log handler and return a `MakeWriter` impl.
     ///
@@ -232,15 +248,15 @@ where
 
 impl<T, W> Builder<Unthreaded<T, W>, W>
 where
-    T: FnMut(&W) -> io::Result<u16>,
-    for<'b> &'b mut W: Write,
+    T: MakeCallback<W>,
+    W: Write,
 {
     /// Finish construction of the log handler and return a `MakeWriter` impl.
     ///
     /// This can be passed to `with_writer` on a `tracing_subscriber::fmt::SubscriberBuilder`.
-    pub fn finish(self) -> UnthreadedHandler<T, W> {
+    pub fn finish(self) -> UnthreadedHandler<T::Callback, W> {
         UnthreadedHandler::new(
-            self.callback.callback,
+            self.callback.callback.make_callback(),
             self.output,
             self.assume_raw_mode,
         )
