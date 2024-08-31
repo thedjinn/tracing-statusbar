@@ -1,5 +1,12 @@
-//! A more advanced example using an unthreaded stateful status line writer where state is shared
+//! An advanced example using an unthreaded stateful status line writer where state is shared
 //! between the status line and the application.
+//!
+//! In this example the shared state is implemented by creating a newtype around an `Arc<Mutex>` of
+//! a state struct. The newtype is given a `MakeCallback` impl so that it can be passed to the
+//! status line builder.
+//!
+//! Compare also to the `simple_shared_state.rs` example, which provides an alternative to the
+//! `MakeCallback` pattern used here that is more simple but also less flexible.
 
 use std::io::{self, Write};
 use std::sync::{Arc, Mutex};
@@ -33,7 +40,7 @@ struct StatusLine(Arc<Mutex<StatusLineState>>);
 impl<W: Write> MakeCallback<W> for StatusLine {
     type Callback = Box<dyn FnMut(&mut W) -> io::Result<u16> + Send>;
 
-    fn make_callback(mut self) -> Self::Callback {
+    fn make_callback(self) -> Self::Callback {
         Box::new(move |output| {
             // Lock the mutex to gain access to the status line state
             let mut state = self.0.lock().expect("Status line mutex was poisoned");
