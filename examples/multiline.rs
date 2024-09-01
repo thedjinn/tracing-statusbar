@@ -1,7 +1,7 @@
-//! An example using an unthreaded status line with a more fancy layout.
+//! An example using an unthreaded status line with a multi-line layout.
 //!
-//! This example is similar to the basic unthreaded example, but uses a more sophisticated status
-//! line layout that fills the entire line.
+//! This example is similar to the basic unthreaded example, but writes a status bar that consists
+//! of multiple lines.
 
 use std::io::{self, Stdout, Write};
 use std::thread;
