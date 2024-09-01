@@ -3,7 +3,14 @@ use std::ops::Deref;
 use std::sync::{Arc, Mutex};
 use std::sync::mpsc::{self, Receiver, SendError, SyncSender};
 
-// TODO: Rename to LogSender
+/// A log entry sender. This is used to send log entries to a consumer on a background thread.
+/// Propagation of entries is done by means of an mpsc channel. The sender and receiver share a
+/// second channel to propagate back consumed buffers. This reduces the number of allocations made
+/// by the log sender.
+///
+/// The `LogSender` implements `Write` (hence the need for a pool of buffers instead of taking
+/// ownership of entries) and thus can be passed to `tracing_subscriber` as the return type of a
+/// `MakeWriter` impl.
 #[derive(Clone)]
 pub struct LogSender {
     /// A sender that propagates log message buffers to a LogReceiver instance. Sending an empty
@@ -17,6 +24,13 @@ pub struct LogSender {
 }
 
 impl LogSender {
+    /// Close the log sender. No further entries can be sent through the channel after this.
+    ///
+    /// To prevent any missing log messages the `Write` impl will print messages directly to
+    /// stdout if they were written after the channel was closed. Under normal operation this is
+    /// not a concern, because the sender should be used until the program is shut down, or the
+    /// sender is replaced with another log consumer. The stdout fallback merely exists as a
+    /// debugging aid.
     pub fn close(&mut self) {
         let _ = self.sender.send(None);
     }
@@ -55,8 +69,13 @@ impl Write for LogSender {
     }
 }
 
+/// An enumeration that lists the things that can go wrong when trying to receive data from a
+/// LogRecever.
 pub enum TryRecvError {
+    /// There are no new log entries to be processed.
     Empty,
+
+    /// The channel is closed.
     Closed,
 }
 
@@ -69,17 +88,14 @@ impl From<mpsc::TryRecvError> for TryRecvError {
     }
 }
 
-//pub enum LogEntry {
-    //Close,
-
-    //Entry {
-        //buffer: Option<Vec<u8>>,
-        //pool: SyncSender<Vec<u8>>,
-    //}
-//}
-
+/// A log entry. This contains a buffer and a sender to propagate the buffer back into the buffer
+/// pool.
 pub struct LogEntry {
+    /// The buffer containing the log entry. This is normally always `Some`, until the Drop impl is
+    /// called, which takes the entry and sends it back into the buffer pool.
     buffer: Option<Vec<u8>>,
+
+    /// A sender to a pool of unused buffers.
     pool: SyncSender<Vec<u8>>,
 }
 
@@ -99,13 +115,18 @@ impl Deref for LogEntry {
     }
 }
 
-// TODO: Rename to LogReceiver
+/// A receiver for log entries.
 pub struct LogReceiver {
+    /// The channel used to propagate buffers.
     receiver: Receiver<Option<Vec<u8>>>,
+
+    /// A sender used to return used buffers to a pool for reuse.
     pool: SyncSender<Vec<u8>>,
 }
 
 impl LogReceiver {
+    /// Wait for the next log entry to arrive, wrapping it in a `LogEntry` struct. Returns `None`
+    /// when the last `LogSender` was dropped.
     pub fn recv(&mut self) -> Option<LogEntry> {
         self.receiver
             .recv()
@@ -117,6 +138,9 @@ impl LogReceiver {
             })
     }
 
+    /// Try to receive a next log entry without blocking, wrapping it in a `LogEntry`. Returns
+    /// either the received entry or a `TryRecvError` indicating why a log entry could not be
+    /// retrieved.
     pub fn try_recv(&mut self) -> Result<LogEntry, TryRecvError> {
         self.receiver
             .try_recv()
@@ -129,6 +153,7 @@ impl LogReceiver {
     }
 }
 
+/// Initialize a new log sender/receiver pair.
 pub fn init() -> (LogSender, LogReceiver) {
     // TODO: Determine proper default backpressure
     // TODO: Make backpressure optional

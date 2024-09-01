@@ -3,12 +3,32 @@ use std::marker::PhantomData;
 
 use crate::{ThreadedHandler, UnthreadedHandler};
 
+/// The `MakeCallback` trait is used to create status line callbacks.
+///
+/// By using a trait (in conjunction with a blanket impl on compatible functions) the status line
+/// builder can expose a polymorphic interface, allowing for a simple API where functions (or
+/// closures) can be provided, and a more complex API that allows for an arbitrary type to provide
+/// a callback, including any captured shared state.
+///
+/// See the crate's examples directory for examples on how to implement these patterns.
 pub trait MakeCallback<W: Write> {
+    /// The type of the status line callback. This must be a callable that takes a mutable
+    /// reference to a writer and returns a result containing the number of newlines emitted.
+    ///
+    /// The use of threaded status line handlers may add additional constraints on the callback
+    /// type.
     type Callback: (FnMut(&mut W) -> io::Result<u16>);
 
+    /// Create the status line callback. This consumes self and converts it into a suitable
+    /// callback.
     fn make_callback(self) -> Self::Callback;
 }
 
+/// A blanket MakeCallback impl for functions that implement a generic status line callback
+/// signature.
+///
+/// The blanket impl is provided so that the status line builder can be called with a function or
+/// closure as an argument, allowing for a simplified API for some use cases.
 impl<T, W> MakeCallback<W> for T
 where
     T: FnMut(&mut W) -> io::Result<u16>,
