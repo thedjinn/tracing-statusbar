@@ -1,6 +1,22 @@
 [package]
 name = "tracing-statusbar"
 version = "0.1.0"
+authors = [
+    "Emil Loer <emil@koffietijd.net>",
+]
+license = "MIT"
+readme = "README.md"
+repository = "https://github.com/thedjinn/tracing-statusbar"
+documentation = "https://docs.rs/tracing-statusbar/"
+description = "A status bar for your `tracing` logs."
+categories = [
+    "asynchronous",
+    "command-line-interface",
+    "command-line-utilities",
+    "development-tools",
+    "development-tools::debugging"
+]
+keywords = ["cli", "logging", "tracing", "subscriber", "terminal"]
 edition = "2021"
 
 [dependencies]
